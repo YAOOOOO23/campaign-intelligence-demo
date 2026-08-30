@@ -271,7 +271,7 @@ export default function Home() {
     setIsImporting(true);
     try {
       await new Promise((resolve) => window.setTimeout(resolve, 300));
-      const parsed = parseImportedJson(importText); const rawNext = Array.isArray(parsed) ? parsed : parsed.campaigns;
+      const parsed = parseImportedJson(importText); const rawNext = (Array.isArray(parsed) ? parsed : parsed.campaigns) as Campaign[];
       const expanded = Array.isArray(rawNext) ? expandImportedCampaigns(rawNext) : null;
       const next = expanded?.campaigns;
       if (!Array.isArray(next) || next.length === 0) throw new Error("未找到campaigns数组");
