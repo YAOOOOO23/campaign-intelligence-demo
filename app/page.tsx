@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowUpRight, Check, ChevronRight, Clipboard, ExternalLink, FileJson, Link2, Search, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import html2canvas from "html2canvas";
+import { ArrowLeft, ArrowUpRight, Check, ChevronRight, Clipboard, Download, ExternalLink, FileJson, Link2, Search, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -33,6 +34,9 @@ function periodRange(year: number, period: Period) {
   const end = year < currentYear ? `${year}-12-31` : now.toISOString().slice(0, 10);
   const monthCount = year < currentYear ? 12 : now.getMonth() + 1;
   return { start: `${year}-01-01`, end, months: allMonths.slice(0, monthCount), label: `全年截至${end}` };
+}
+function annualCalendarRange(year: number) {
+  return { start: `${year}-01-01`, end: `${year}-12-31`, months: allMonths, label: "全年" };
 }
 function buildResearchPromptLegacy(brand: string, year: number, period: Period) {
   const range = periodRange(year, period);
@@ -148,10 +152,6 @@ function searchUrl(platform: string, term: string) {
   if (platform === "抖音") return `https://www.douyin.com/search/${q}`;
   return `https://s.weibo.com/weibo?q=${q}`;
 }
-function compactDate(date: string) {
-  const [, month, day] = date.split("-");
-  return `${Number(month)}/${Number(day)}`;
-}
 function dateAtOrAfter(value: string, minimum: string) { return value < minimum ? minimum : value; }
 function dateAtOrBefore(value: string, maximum: string) { return value > maximum ? maximum : value; }
 function monthSegments(range: ReturnType<typeof periodRange>) {
@@ -195,6 +195,8 @@ export default function Home() {
   const [calendarPrimary, setCalendarPrimary] = useState("#e41e2b");
   const [calendarSecondary, setCalendarSecondary] = useState("#181716");
   const [copied, setCopied] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const calendarRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("campaign-demo-data");
@@ -238,9 +240,13 @@ export default function Home() {
     });
   }, [campaigns, query, year, period]);
 
-  const range = periodRange(year, period);
-  const totalDays = daysBetween(range.end, range.start) + 1;
-  const calendarMonths = monthSegments(range);
+  const calendarItems = useMemo(() => {
+    const key = query.trim().toLowerCase();
+    return campaigns.filter((item) => !key || [item.name, item.type, item.theme, ...item.platforms, ...item.partners].join(" ").toLowerCase().includes(key));
+  }, [campaigns, query]);
+  const calendarRange = annualCalendarRange(year);
+  const totalDays = daysBetween(calendarRange.end, calendarRange.start) + 1;
+  const calendarMonths = monthSegments(calendarRange);
   const updateProject = (next: { brand?: string; year?: number; period?: Period }) => {
     const project = { brand: next.brand ?? brand, year: next.year ?? year, period: next.period ?? period };
     setBrand(project.brand); setYear(project.year); setPeriod(project.period);
@@ -253,6 +259,17 @@ export default function Home() {
 
   const copyPrompt = async () => {
     await navigator.clipboard.writeText(buildResearchPrompt(brand, year, period)); setCopied(true); window.setTimeout(() => setCopied(false), 1800);
+  };
+  const exportCalendar = async () => {
+    if (!calendarRef.current) return;
+    setIsExporting(true);
+    try {
+      const canvas = await html2canvas(calendarRef.current, { backgroundColor: "#f4f2ed", scale: 2, useCORS: true });
+      const link = document.createElement("a");
+      link.download = `${brand}-${year}-Campaign-Calendar.jpg`;
+      link.href = canvas.toDataURL("image/jpeg", 0.96);
+      link.click();
+    } finally { setIsExporting(false); }
   };
   const importCampaigns = async () => {
     setImportError(""); setImportSuccess("");
@@ -327,12 +344,15 @@ export default function Home() {
         </section>}
 
         <section id="campaign-results" className="mt-10 scroll-mt-6">
-          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="text-xs font-bold uppercase tracking-[0.2em] text-black/40">Annual media calendar</p><h2 className="mt-2 text-3xl font-black tracking-tight">{brand} · {year} {period} Campaign总览</h2><p className="mt-2 text-xs" style={{ color: calendarPrimary }}>仅通过日期审计的节点进入截图时间轴；每段均显示准确起止日期。</p></div><div className="flex flex-wrap items-end gap-3"><div className="flex h-11 items-center gap-3 border border-black/15 bg-white px-3"><span className="text-[10px] font-bold uppercase tracking-wider text-black/35">Calendar配色</span><label className="flex items-center gap-1 text-[10px] text-black/45">主色<input aria-label="Calendar主色" type="color" value={calendarPrimary} onChange={(event) => updateCalendarColors(event.target.value, calendarSecondary)} className="h-7 w-8 cursor-pointer border-0 bg-transparent p-0" /></label><label className="flex items-center gap-1 text-[10px] text-black/45">辅色<input aria-label="Calendar辅色" type="color" value={calendarSecondary} onChange={(event) => updateCalendarColors(calendarPrimary, event.target.value)} className="h-7 w-8 cursor-pointer border-0 bg-transparent p-0" /></label></div><div><label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-black/35">筛选当前结果</label><div className="relative w-full sm:w-64"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-black/35" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="筛选名称、平台或合作方" className="h-11 w-full border border-black/15 bg-white pl-10 pr-3 text-sm outline-none transition focus:border-black" /></div></div></div></div>
-          <div className="mt-6 overflow-x-auto border border-black/10 bg-white"><div style={{ minWidth: 220 + range.months.length * 170 }}><div className="grid grid-cols-[220px_1fr] border-b border-black/10 bg-[#181716] text-white"><div className="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-white/50">Campaign</div><div className="flex">{calendarMonths.map((month) => <div key={month.label} className="border-l border-white/10 px-3 py-3 text-center text-xs font-semibold" style={{ flexGrow: month.days, flexBasis: 0 }}>{month.label}</div>)}</div></div><div className="divide-y divide-black/10">{filtered.map((item, index) => {
-            const visiblePeriods = calendarPeriodsFor(item).filter((p) => validDate(p.start) && (p.end || p.start) >= range.start && p.start <= range.end);
-            const trackHeight = visiblePeriods.length ? Math.max(64, visiblePeriods.length * 38 + 18) : 80;
-            return <button key={item.id} onClick={() => setSelected(item)} className="grid w-full grid-cols-[220px_1fr] text-left transition hover:bg-[#fff7f7]"><div className="px-4 py-5"><p className="font-semibold">{item.name}</p><p className="mt-1 text-xs text-black/45">{item.type} · {visiblePeriods.length ? `${visiblePeriods.length}个已核验日期节点` : "未通过日期审计"}</p></div><div className="relative border-l border-black/10" style={{ minHeight: trackHeight }}>{calendarMonths.slice(1).map((month) => <div key={month.label} className="absolute inset-y-0 border-l border-black/8" style={{ left: `${(month.startOffset / totalDays) * 100}%` }} />)}{visiblePeriods.map((p, periodIndex) => { const sourceStart = p.start as string; const sourceEnd = validDate(p.end) ? p.end : sourceStart; const start = dateAtOrAfter(sourceStart, range.start); const end = dateAtOrBefore(sourceEnd, range.end); const left = (daysBetween(start, range.start) / totalDays) * 100; const width = ((daysBetween(end, start) + 1) / totalDays) * 100; const color = index % 2 ? calendarSecondary : calendarPrimary; const sameDay = start === end; const sameMonth = start.slice(0, 7) === end.slice(0, 7); const compactLabel = sameDay ? compactDate(start) : sameMonth ? `${compactDate(start)}–${Number(end.slice(-2))}` : `${compactDate(start)}–${compactDate(end)}`; const fullLabel = sourceStart === sourceEnd ? formatDate(sourceStart) : `${formatDate(sourceStart)}—${formatDate(sourceEnd)}`; const labelMinWidth = sameDay ? 48 : sameMonth ? 68 : 92; const alignRight = left > 94; const edgePosition = alignRight ? { right: `${(daysBetween(range.end, end) / totalDays) * 100}%` } : { left: `${left}%` }; return <div key={`${sourceStart}-${periodIndex}`} style={{ ...edgePosition, width: `${width}%`, minWidth: labelMinWidth, top: 14 + periodIndex * 38, backgroundColor: color }} className="absolute z-10 flex h-7 items-center px-2 text-white shadow-sm" title={`${p.label}：${fullLabel}`}><span className="w-full whitespace-nowrap text-center text-[10px] font-bold leading-none">{compactLabel}</span></div>; })}{visiblePeriods.length === 0 && <div className="relative z-10 mx-3 mt-4 border border-dashed bg-[#fff0f0] px-3 py-2 text-xs text-[#b3131d]" style={{ borderColor: `${calendarPrimary}55` }}>已保留项目，但日期证据不足，不进入截图时间轴</div>}</div></button>;
-          })}</div></div></div>
+          <div ref={calendarRef} className="border border-black/10 bg-white p-4 sm:p-6">
+            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="text-xs font-bold uppercase tracking-[0.2em] text-black/40">Annual media calendar</p><h2 className="mt-2 text-3xl font-black tracking-tight">{brand} · {year} 全年 Campaign总览</h2><p className="mt-2 text-xs" style={{ color: calendarPrimary }}>固定显示1—12月，不横向滑动；H1/H2只影响研究指令与下方资料库筛选。</p></div><div className="flex flex-wrap items-end gap-3"><div className="flex h-11 items-center gap-3 border border-black/15 bg-white px-3"><span className="text-[10px] font-bold uppercase tracking-wider text-black/35">Calendar配色</span><label className="flex items-center gap-1 text-[10px] text-black/45">主色<input aria-label="Calendar主色" type="color" value={calendarPrimary} onChange={(event) => updateCalendarColors(event.target.value, calendarSecondary)} className="h-7 w-8 cursor-pointer border-0 bg-transparent p-0" /></label><label className="flex items-center gap-1 text-[10px] text-black/45">辅色<input aria-label="Calendar辅色" type="color" value={calendarSecondary} onChange={(event) => updateCalendarColors(calendarPrimary, event.target.value)} className="h-7 w-8 cursor-pointer border-0 bg-transparent p-0" /></label></div><div><label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-black/35">筛选当前结果</label><div className="relative w-full sm:w-56"><Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-black/35" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="筛选名称、平台或合作方" className="h-11 w-full border border-black/15 bg-white pl-10 pr-3 text-sm outline-none transition focus:border-black" /></div></div></div></div>
+            <div className="mt-6 overflow-hidden border border-black/10 bg-white"><div className="grid border-b border-black/10 bg-[#181716] text-white" style={{ gridTemplateColumns: "minmax(108px, 1.25fr) minmax(0, 8.75fr)" }}><div className="px-3 py-3 text-[10px] font-semibold uppercase tracking-wider text-white/50 sm:text-xs">Campaign</div><div className="flex">{calendarMonths.map((month) => <div key={month.label} className="border-l border-white/10 px-0.5 py-3 text-center text-[9px] font-semibold sm:text-[11px]" style={{ flexGrow: month.days, flexBasis: 0 }}>{month.label}</div>)}</div></div><div className="divide-y divide-black/10">{calendarItems.map((item, index) => {
+              const visiblePeriods = calendarPeriodsFor(item).filter((p) => validDate(p.start) && (p.end || p.start) >= calendarRange.start && p.start <= calendarRange.end);
+              const trackHeight = visiblePeriods.length ? Math.max(52, visiblePeriods.length * 27 + 14) : 62;
+              return <button key={item.id} onClick={() => setSelected(item)} className="grid w-full text-left transition hover:bg-[#fff7f7]" style={{ gridTemplateColumns: "minmax(108px, 1.25fr) minmax(0, 8.75fr)" }}><div className="min-w-0 px-3 py-3"><p className="truncate text-xs font-semibold sm:text-sm">{item.name}</p><p className="mt-1 text-[9px] text-black/45 sm:text-[10px]">{item.type} · {visiblePeriods.length ? `${visiblePeriods.length}个已核验节点` : "日期待核实"}</p></div><div className="relative min-w-0 border-l border-black/10" style={{ minHeight: trackHeight }}>{calendarMonths.slice(1).map((month) => <div key={month.label} className="absolute inset-y-0 border-l border-black/8" style={{ left: `${(month.startOffset / totalDays) * 100}%` }} />)}{visiblePeriods.map((p, periodIndex) => { const sourceStart = p.start as string; const sourceEnd = validDate(p.end) ? p.end : sourceStart; const start = dateAtOrAfter(sourceStart, calendarRange.start); const end = dateAtOrBefore(sourceEnd, calendarRange.end); const left = (daysBetween(start, calendarRange.start) / totalDays) * 100; const width = ((daysBetween(end, start) + 1) / totalDays) * 100; const color = index % 2 ? calendarSecondary : calendarPrimary; const sameDay = start === end; const sameMonth = start.slice(0, 7) === end.slice(0, 7); const displayLabel = sameDay ? `${start.slice(5, 7)}/${start.slice(8, 10)}` : sameMonth ? `${start.slice(5, 7)}/${start.slice(8, 10)}\n-${end.slice(8, 10)}` : `${start.slice(5, 7)}/${start.slice(8, 10)}\n${end.slice(5, 7)}/${end.slice(8, 10)}`; const fullLabel = sourceStart === sourceEnd ? formatDate(sourceStart) : `${formatDate(sourceStart)}—${formatDate(sourceEnd)}`; const labelMinWidth = sameDay ? 28 : sameMonth ? 42 : 50; const alignRight = left > 94; const edgePosition = alignRight ? { right: `${(daysBetween(calendarRange.end, end) / totalDays) * 100}%` } : { left: `${left}%` }; return <div key={`${sourceStart}-${periodIndex}`} style={{ ...edgePosition, width: `${width}%`, minWidth: labelMinWidth, top: 9 + periodIndex * 27, backgroundColor: color }} className="absolute z-10 flex h-[19px] items-center px-1 text-white shadow-sm" title={`${p.label}：${fullLabel}`}><span className="w-full whitespace-pre-line text-center text-[7px] font-bold leading-[8px] sm:text-[8px] sm:leading-[9px]">{displayLabel}</span></div>; })}{visiblePeriods.length === 0 && <div className="relative z-10 mx-2 mt-3 border border-dashed bg-[#fff0f0] px-2 py-1.5 text-[9px] text-[#b3131d]" style={{ borderColor: `${calendarPrimary}55` }}>日期证据不足</div>}</div></button>;
+            })}</div></div>
+          </div>
+          <div className="mt-3 flex justify-end"><Button onClick={exportCalendar} disabled={isExporting} variant="outline" className="h-10 rounded-none border-black/20 bg-white px-4 text-xs hover:bg-[#181716] hover:text-white"><Download className="mr-2 size-4" />{isExporting ? "正在导出…" : "导出JPG"}</Button></div>
         </section>
 
         <section className="mt-12"><div className="mb-5 flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.2em] text-black/40">Campaign Library</p><h2 className="mt-2 text-3xl font-black">重点Campaign</h2></div><span className="font-mono text-sm text-black/40">{filtered.length.toString().padStart(2, "0")} ITEMS</span></div><div className="grid gap-px border border-black/10 bg-black/10 md:grid-cols-3">{filtered.map((item, index) => <article key={item.id} className="group flex min-h-80 flex-col bg-[#f4f2ed] p-6 transition hover:bg-white"><div className="flex items-start justify-between"><span className="font-mono text-xs text-black/35">0{index + 1}</span><Badge variant="outline" className="rounded-none border-black/15 bg-transparent">{item.type}</Badge></div><h3 className="mt-8 text-2xl font-black leading-tight tracking-tight">{item.name}</h3><p className="mt-3 line-clamp-3 text-sm leading-6 text-black/55">{item.summary}</p><div className="mt-5 flex flex-wrap gap-1.5">{item.platforms.slice(0, 4).map((platform) => <span key={platform} className="bg-black/5 px-2 py-1 text-[11px]">{platform}</span>)}</div><button onClick={() => setSelected(item)} className="mt-auto flex items-center justify-between border-t border-black/10 pt-5 text-sm font-semibold transition group-hover:text-[#e41e2b]">查看Campaign详情 <ArrowUpRight className="size-4" /></button></article>)}</div></section>
